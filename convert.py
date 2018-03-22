@@ -2,6 +2,7 @@
 import argparse
 import lxml.etree as et
 import logging
+import ovirtsdk4 as sdk
 
 
 XML_NAMESPACES = {
@@ -21,17 +22,6 @@ XML_NAMESPACES = {
 # - network adapters
 # - cpus
 # - memory
-# ---- Ovirt ----
-# - USB controller
-# - graphical controller
-# - graphical framebuffer
-# - channels:
-#   - unix
-#   - spicevnc
-# - controller ide
-# - controller virtio-serial
-# - balloon
-# - controller virtio-scsi
 
 
 def prefix_ns(ns, val):
@@ -55,12 +45,39 @@ class ResourceType(object):
     STORAGE_EXTENT = 19
 
 
+class VM(object):
+    def __init__(self):
+        pass
+
+    def build_from_xen_ovf(self, ovf_root):
+        raise NotImplementedError
+
+    def add_vm_to_ovirt(self, conn):
+        raise NotImplementedError
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("xen_ovf", help="Xen OVF file to convert")
+    parser.add_argument("--engine", help="URL of the oVirt engine API")
+    parser.add_argument("--user", help="oVirt user name")
+    parser.add_argument("--password", help="oVirt user password")
+    parser.add_argument("ovf_file", help="Xen OVF file")
     args = parser.parse_args()
 
-    ovf_root = et.parse(args.xen_ovf).getroot()
+    ovf_root = et.parse(args.ovf_file).getroot()
+
+    connection = sdk.Connection(
+        url=args.engine,
+        username=args.user,
+        password=args.password,
+        insecure=True
+    )
+
+    connection.test(raise_exception=True)
+
+    vm = VM()
+    vm.build_from_xen_ovf(ovf_root)
+    vm.add_vm_to_ovirt(connection)
 
 
 if __name__ == '__main__':
