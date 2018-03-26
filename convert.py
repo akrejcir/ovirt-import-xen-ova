@@ -68,15 +68,30 @@ class ResourceType(object):
 class VM(object):
     def __init__(self):
         self.name = None
-        self.cpu = None
+        self.cpu_count = None
+        self.cores_pre_socket = 1
         self.memory_bytes = None
+        self.disks = []
+
+        self._ovf = None
 
     def build_from_xen_ovf(self, ovf_root):
+        self._ovf = ovf_root
+
         self._read_ovf_envelope(ovf_root)
         self._check_required_fields()
         self._fill_missing_fields()
 
     def add_vm_to_ovirt(self, conn):
+        sockets = self.cpu_count / self.cores_pre_socket
+        cpu = sdk.types.Cpu(
+            topology=sdk.types.CpuTopology(
+                sockets=sockets,
+                cores=self.cores_pre_socket,
+                threads=1
+            )
+        )
+
         raise NotImplementedError
 
     def _read_ovf_envelope(self, elem):
@@ -109,15 +124,15 @@ class VM(object):
                 ResourceType.ETHERNET: ignore_and_warn,
                 ResourceType.CD_DRIVE: ignore_and_warn,
                 ResourceType.DVD_DRIVE: ignore_and_warn,
-                ResourceType.STORAGE_EXTENT: ignore_and_warn
+                ResourceType.STORAGE_EXTENT: self._read_hw_disk
             }, lambda e: int(e.xpath("rasd:ResourceType/text()", namespaces=e.nsmap)[0]))
 
         def handle_other_config(elem):
             handle_elem(elem, {
                 "HVM_boot_params": ignore_and_warn,
                 "HVM_boot_policy": ignore_and_warn,
-                "platform": ignore_and_warn,
-                "hardware_platform_version": ignore_and_warn
+                "platform": self._read_hw_platform,
+                "hardware_platform_version": noop_handler  # Not relevant for oVirt
             }, lambda e: e.attrib["Name"])
 
         for e in elem:
@@ -129,20 +144,10 @@ class VM(object):
             })
 
     def _read_hw_cpu(self, elem):
-        if self.cpu is not None:
+        if self.cpu_count is not None:
             raise RuntimeError("OVF contains multiple CPU elements.")
 
-        count = int(elem.xpath("rasd:VirtualQuantity/text()", namespaces=elem.nsmap)[0])
-
-        # TODO - parse cpu-per-socket filed
-        # Using CPU count as the number of sockets
-        self.cpu = sdk.types.Cpu(
-            topology=sdk.types.CpuTopology(
-                sockets=count,
-                cores=1,
-                threads=1
-            )
-        )
+        self.cpu_count = int(elem.xpath("rasd:VirtualQuantity/text()", namespaces=elem.nsmap)[0])
 
     def _read_hw_memory(self, elem):
         if self.memory_bytes is not None:
@@ -156,12 +161,50 @@ class VM(object):
         mem_mb = int(elem.xpath("rasd:VirtualQuantity/text()", namespaces=elem.nsmap)[0])
         self.memory_bytes = mem_mb * 1024 * 1024
 
+    def _read_hw_disk(self, elem):
+        disk_id = elem.xpath("rasd:InstanceID/text()", namespaces=elem.nsmap)[0]
+
+        # Find disk with this ID
+        disk_elem = self._ovf.xpath(
+            "/ovf:Envelope/ovf:DiskSection/ovf:Disk[@ovf:diskId='{disk_id}']".format(
+                disk_id=disk_id
+            ),
+            namespaces=elem.nsmap
+        )[0]
+
+        file_id = disk_elem.attrib[prefix_ns("ovf","fileRef")]
+        file_elem = self._ovf.xpath(
+            "/ovf:Envelope/ovf:References/ovf:File[@ovf:id='{file_id}']".format(
+                file_id=file_id
+            ),
+            namespaces=elem.nsmap
+        )[0]
+
+        self.disks.append({
+            'id': disk_id,
+            'name': str(elem.xpath("rasd:ElementName/text()", namespaces=elem.nsmap)[0]),
+            'bootable': disk_elem.attrib[prefix_ns("xenovf","isBootable")] in ["true", "True"],
+            'file': file_elem.attrib[prefix_ns("ovf","href")]
+        })
+
+    def _read_hw_platform(self, elem):
+        info_str = elem.xpath("xenovf:Value/text()", namespaces=elem.nsmap)[0]
+
+        for p in info_str.split(';'):
+            if not p:
+                continue
+
+            [key, value] = p.split('=', maxsplit=1)
+            if key == 'cores-per-socket':
+                self.cores_pre_socket = int(value)
+                continue
+
     def _check_required_fields(self):
         if self.name is None:
             raise RuntimeError("Name is missing!")
 
-        if self.cpu is None:
-            raise RuntimeError("CPU information is missing!")
+        if self.cpu_count is None:
+            raise RuntimeError("CPU count information is missing!")
 
         if self.memory_bytes is None:
             raise RuntimeError("Memory information is missing!")
