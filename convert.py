@@ -215,6 +215,7 @@ class VM(object):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("-v", "--verbose", help="Show debug messages", action="store_true")
     parser.add_argument("--engine", help="URL of the oVirt engine API")
     parser.add_argument("--user", help="oVirt user name")
     parser.add_argument("--password", help="oVirt user password")
@@ -222,6 +223,9 @@ def main():
     parser.add_argument("--domain", help="Name or ID of the storage domain, where the VM's disks be created")
     parser.add_argument("ovf_file", help="Xen OVF file")
     args = parser.parse_args()
+
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
 
     ovf_root = et.parse(args.ovf_file).getroot()
 
