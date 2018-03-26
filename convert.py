@@ -4,7 +4,7 @@ import lxml.etree as et
 import logging
 import ovirtsdk4 as sdk
 import subprocess
-
+import re
 
 XML_NAMESPACES = {
     "ovf": "http://schemas.dmtf.org/ovf/envelope/1",
@@ -14,6 +14,9 @@ XML_NAMESPACES = {
     "xsi": "http://www.w3.org/2001/XMLSchema-instance",
     "xenovf": "http://schemas.citrix.com/ovf/envelope/1"
 }
+
+
+VM_NAME_PATTERN = re.compile("[\w.-]*")
 
 
 # Hardware section
@@ -69,6 +72,7 @@ class ResourceType(object):
 class VM(object):
     def __init__(self):
         self.name = None
+        self.cluster = None
         self.cpu_count = None
         self.cores_pre_socket = 1
         self.memory_bytes = None
@@ -231,27 +235,54 @@ def convert_disks(vm, skip_conversion):
         disk["qcow_file"] = out_file
 
 
-def add_vm_to_ovirt(vm, conn):
-    sockets = vm.cpu_count / vm.cores_pre_socket
-    cpu = sdk.types.Cpu(
-        topology=sdk.types.CpuTopology(
-            sockets=sockets,
-            cores=vm.cores_pre_socket,
-            threads=1
-        )
+def check_cluster_exists(cluster_id, conn):
+    try:
+        conn.service("clusters").service(cluster_id).get()
+        conn.service("clusters").service("b60a6da0-2dba-11e8-8cdb-001a4c103f15")
+    except sdk.NotFoundError:
+        raise RuntimeError("Cluster was not found, id: %s" % cluster_id) from None
+
+
+def add_vm_to_ovirt(vm_def, conn):
+    # Check if name is valid
+    if not VM_NAME_PATTERN.fullmatch(vm_def.name):
+        raise RuntimeError("Vm name can only contain alpha-numeric characters, '_', '-' or '.'. Vm name: %r" % vm_def.name)
+
+    # TODO - Check if cluster is name or ID
+    vm = sdk.types.Vm(
+        name=vm_def.name,
+        cluster=sdk.types.Cluster(
+            id=vm_def.cluster
+        ),
+        template=sdk.types.Template(
+          id="00000000-0000-0000-0000-000000000000"
+        ),
+        cpu=sdk.types.Cpu(
+            topology=sdk.types.CpuTopology(
+                sockets=vm_def.cpu_count // vm_def.cores_pre_socket,
+                cores=vm_def.cores_pre_socket,
+                threads=1
+            ),
+        ),
+        memory=vm_def.memory_bytes
     )
 
-    raise NotImplementedError
+    vms_service = conn.service('vms')
+
+    logging.info("Adding VM ...")
+    vms_service.add(vm)
+    logging.info("VM added")
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v", "--verbose", help="Show debug messages", action="store_true")
-    parser.add_argument("--engine", help="URL of the oVirt engine API")
-    parser.add_argument("--user", help="oVirt user name")
-    parser.add_argument("--password", help="oVirt user password")
-    parser.add_argument("--cluster", help="Name or ID of the cluster, where the VM will be created.")
+    parser.add_argument("--engine", help="URL of the oVirt engine API", required=True)
+    parser.add_argument("--user", help="oVirt user name", required=True)
+    parser.add_argument("--password", help="oVirt user password", required=True)
+    parser.add_argument("--cluster", help="Name or ID of the cluster, where the VM will be created.", required=True)
     parser.add_argument("--domain", help="Name or ID of the storage domain, where the VM's disks be created")
+    parser.add_argument("--name", help="Name of the VM")
     parser.add_argument("-s", "--skip-disk-conversion",
                         help="Do not call qemu-img to convert disks",
                         action="store_true")
@@ -267,6 +298,10 @@ def main():
     vm = OvfReader().read_xen_ovf(ovf_root)
     convert_disks(vm, args.skip_disk_conversion)
 
+    vm.cluster = args.cluster
+    if args.name:
+        vm.name = args.name
+
     connection = sdk.Connection(
         url=args.engine,
         username=args.user,
@@ -276,6 +311,7 @@ def main():
 
     connection.test(raise_exception=True)
 
+    check_cluster_exists(vm.cluster, connection)
     add_vm_to_ovirt(vm, connection)
 
 
