@@ -3,6 +3,7 @@ import argparse
 import lxml.etree as et
 import logging
 import ovirtsdk4 as sdk
+import subprocess
 
 
 XML_NAMESPACES = {
@@ -93,6 +94,27 @@ class VM(object):
         )
 
         raise NotImplementedError
+
+    def convert_disks(self):
+        for disk in self.disks:
+            disk_file = disk["file"]
+            out_file = disk["id"] + ".qcow2"
+
+            logging.info("Converting disk: %s", disk_file)
+            err = subprocess.call([
+                "qemu-img",
+                "convert",
+                "-f", "vpc",
+                "-O", "qcow2",
+                disk_file,
+                out_file
+            ])
+
+            if err != 0:
+                raise RuntimeError("Disk conversion failed")
+
+            logging.info("Conversion succeeded. Output: %s", out_file)
+            disk["qcow_file"] = out_file
 
     def _read_ovf_envelope(self, elem):
         for e in elem:
@@ -231,6 +253,7 @@ def main():
 
     vm = VM()
     vm.build_from_xen_ovf(ovf_root)
+    vm.convert_disks()
 
     connection = sdk.Connection(
         url=args.engine,
