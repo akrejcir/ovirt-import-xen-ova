@@ -203,10 +203,16 @@ class OvfReader(object):
             raise RuntimeError("Memory information is missing!")
 
 
-def convert_disks(vm):
+def convert_disks(vm, skip_conversion):
     for disk in vm.disks:
         disk_file = disk["file"]
         out_file = disk["id"] + ".qcow2"
+
+        if skip_conversion:
+            logging.info("Skipping conversion of disk: %s", disk_file)
+            logging.debug("Output assumed to be: %s", out_file)
+            disk["qcow_file"] = out_file
+            continue
 
         logging.info("Converting disk: %s", disk_file)
         err = subprocess.call([
@@ -246,6 +252,10 @@ def main():
     parser.add_argument("--password", help="oVirt user password")
     parser.add_argument("--cluster", help="Name or ID of the cluster, where the VM will be created.")
     parser.add_argument("--domain", help="Name or ID of the storage domain, where the VM's disks be created")
+    parser.add_argument("-s", "--skip-disk-conversion",
+                        help="Do not call qemu-img to convert disks",
+                        action="store_true")
+
     parser.add_argument("ovf_file", help="Xen OVF file")
     args = parser.parse_args()
 
@@ -255,7 +265,7 @@ def main():
     ovf_root = et.parse(args.ovf_file).getroot()
 
     vm = OvfReader().read_xen_ovf(ovf_root)
-    convert_disks(vm)
+    convert_disks(vm, args.skip_disk_conversion)
 
     connection = sdk.Connection(
         url=args.engine,
