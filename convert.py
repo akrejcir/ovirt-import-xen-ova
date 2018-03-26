@@ -74,47 +74,18 @@ class VM(object):
         self.memory_bytes = None
         self.disks = []
 
+
+class OvfReader(object):
+    def __init__(self):
+        self._vm = VM()
         self._ovf = None
 
-    def build_from_xen_ovf(self, ovf_root):
+    def read_xen_ovf(self, ovf_root):
         self._ovf = ovf_root
 
         self._read_ovf_envelope(ovf_root)
         self._check_required_fields()
-        self._fill_missing_fields()
-
-    def add_vm_to_ovirt(self, conn):
-        sockets = self.cpu_count / self.cores_pre_socket
-        cpu = sdk.types.Cpu(
-            topology=sdk.types.CpuTopology(
-                sockets=sockets,
-                cores=self.cores_pre_socket,
-                threads=1
-            )
-        )
-
-        raise NotImplementedError
-
-    def convert_disks(self):
-        for disk in self.disks:
-            disk_file = disk["file"]
-            out_file = disk["id"] + ".qcow2"
-
-            logging.info("Converting disk: %s", disk_file)
-            err = subprocess.call([
-                "qemu-img",
-                "convert",
-                "-f", "vpc",
-                "-O", "qcow2",
-                disk_file,
-                out_file
-            ])
-
-            if err != 0:
-                raise RuntimeError("Disk conversion failed")
-
-            logging.info("Conversion succeeded. Output: %s", out_file)
-            disk["qcow_file"] = out_file
+        return self._vm
 
     def _read_ovf_envelope(self, elem):
         for e in elem:
@@ -128,7 +99,7 @@ class VM(object):
 
     def _read_ovf_virtual_system(self, elem):
         def set_name(name_elem):
-            self.name = name_elem.text
+            self._vm.name = name_elem.text
 
         for e in elem:
             handle_elem(e, {
@@ -166,13 +137,13 @@ class VM(object):
             })
 
     def _read_hw_cpu(self, elem):
-        if self.cpu_count is not None:
+        if self._vm.cpu_count is not None:
             raise RuntimeError("OVF contains multiple CPU elements.")
 
-        self.cpu_count = int(elem.xpath("rasd:VirtualQuantity/text()", namespaces=elem.nsmap)[0])
+        self._vm.cpu_count = int(elem.xpath("rasd:VirtualQuantity/text()", namespaces=elem.nsmap)[0])
 
     def _read_hw_memory(self, elem):
-        if self.memory_bytes is not None:
+        if self._vm.memory_bytes is not None:
             raise RuntimeError("OVF contains multiple memory elements.")
 
         # Check if allocation units are MB
@@ -181,7 +152,7 @@ class VM(object):
             raise RuntimeError("Memory units are not MB")
 
         mem_mb = int(elem.xpath("rasd:VirtualQuantity/text()", namespaces=elem.nsmap)[0])
-        self.memory_bytes = mem_mb * 1024 * 1024
+        self._vm.memory_bytes = mem_mb * 1024 * 1024
 
     def _read_hw_disk(self, elem):
         disk_id = elem.xpath("rasd:InstanceID/text()", namespaces=elem.nsmap)[0]
@@ -202,7 +173,7 @@ class VM(object):
             namespaces=elem.nsmap
         )[0]
 
-        self.disks.append({
+        self._vm.disks.append({
             'id': disk_id,
             'name': str(elem.xpath("rasd:ElementName/text()", namespaces=elem.nsmap)[0]),
             'bootable': disk_elem.attrib[prefix_ns("xenovf","isBootable")] in ["true", "True"],
@@ -218,21 +189,53 @@ class VM(object):
 
             [key, value] = p.split('=', maxsplit=1)
             if key == 'cores-per-socket':
-                self.cores_pre_socket = int(value)
+                self._vm.cores_pre_socket = int(value)
                 continue
 
     def _check_required_fields(self):
-        if self.name is None:
+        if self._vm.name is None:
             raise RuntimeError("Name is missing!")
 
-        if self.cpu_count is None:
+        if self._vm.cpu_count is None:
             raise RuntimeError("CPU count information is missing!")
 
-        if self.memory_bytes is None:
+        if self._vm.memory_bytes is None:
             raise RuntimeError("Memory information is missing!")
 
-    def _fill_missing_fields(self):
-        pass
+
+def convert_disks(vm):
+    for disk in vm.disks:
+        disk_file = disk["file"]
+        out_file = disk["id"] + ".qcow2"
+
+        logging.info("Converting disk: %s", disk_file)
+        err = subprocess.call([
+            "qemu-img",
+            "convert",
+            "-f", "vpc",
+            "-O", "qcow2",
+            disk_file,
+            out_file
+        ])
+
+        if err != 0:
+            raise RuntimeError("Disk conversion failed")
+
+        logging.info("Conversion succeeded. Output: %s", out_file)
+        disk["qcow_file"] = out_file
+
+
+def add_vm_to_ovirt(vm, conn):
+    sockets = vm.cpu_count / vm.cores_pre_socket
+    cpu = sdk.types.Cpu(
+        topology=sdk.types.CpuTopology(
+            sockets=sockets,
+            cores=vm.cores_pre_socket,
+            threads=1
+        )
+    )
+
+    raise NotImplementedError
 
 
 def main():
@@ -251,9 +254,8 @@ def main():
 
     ovf_root = et.parse(args.ovf_file).getroot()
 
-    vm = VM()
-    vm.build_from_xen_ovf(ovf_root)
-    vm.convert_disks()
+    vm = OvfReader().read_xen_ovf(ovf_root)
+    convert_disks(vm)
 
     connection = sdk.Connection(
         url=args.engine,
@@ -264,7 +266,7 @@ def main():
 
     connection.test(raise_exception=True)
 
-    vm.add_vm_to_ovirt(connection)
+    add_vm_to_ovirt(vm, connection)
 
 
 if __name__ == '__main__':
