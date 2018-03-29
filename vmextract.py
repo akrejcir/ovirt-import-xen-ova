@@ -70,7 +70,6 @@ class VM(object):
     def __init__(self):
         self.id = None
         self.name = None
-        self.cluster = None
         self.cpu_count = None
         self.cores_pre_socket = 1
         self.memory_bytes = None
@@ -80,7 +79,6 @@ class VM(object):
         return {
             'id': self.id,
             'name': self.name,
-            'cluster': self.cluster,
             'cpu_count': self.cpu_count,
             'cores_pre_socket': self.cores_pre_socket,
             'memory_bytes': self.memory_bytes,
@@ -191,6 +189,7 @@ class OvfReader(object):
         self._vm.disks.append({
             'id': disk_id,
             'name': str(elem.xpath("rasd:ElementName/text()", namespaces=elem.nsmap)[0]),
+            'capacity': int(disk_elem.attrib[prefix_ns("ovf","capacity")]),
             'bootable': disk_elem.attrib[prefix_ns("xenovf","isBootable")] in ["true", "True"],
             'file': file_elem.attrib[prefix_ns("ovf","href")]
         })

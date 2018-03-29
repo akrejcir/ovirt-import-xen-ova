@@ -3,10 +3,13 @@ import argparse
 import json
 import logging
 import ovirtsdk4 as sdk
+import string
+import random
 import re
+import time
 
 
-VM_NAME_PATTERN = re.compile("[\w.-]*")
+NAME_PATTERN = re.compile("[\w.-]*")
 
 
 def check_cluster_exists(cluster_id, conn):
@@ -19,7 +22,7 @@ def check_cluster_exists(cluster_id, conn):
 
 def add_vm_to_ovirt(vm_def, conn):
     # Check if name is valid
-    if not VM_NAME_PATTERN.fullmatch(vm_def['name']):
+    if not NAME_PATTERN.fullmatch(vm_def['name']):
         raise RuntimeError("Vm name can only contain alpha-numeric characters, '_', '-' or '.'. Vm name: %r" % vm_def['name'])
 
     # TODO - Check if cluster is name or ID
@@ -49,6 +52,60 @@ def add_vm_to_ovirt(vm_def, conn):
     logging.info("VM added")
 
 
+def add_disks_to_ovirt(vm, conn):
+    disks_service = conn.service('disks')
+
+    new_disks = []
+    for disk_def in vm['disks']:
+        if disks_service.list(query={"search": "id=%s" % disk_def["id"]}):
+            raise RuntimeError("Disk with id %r already exists. Disk name: %r" % (disk_def['id'], disk_def['name']))
+
+        if not NAME_PATTERN.fullmatch(disk_def['name']):
+            logging.warn("Disk name is not compatible with oVirt: %r", disk_def['name'])
+
+            # Generate random name and check if it is free
+            while True:
+                random_str = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(6))
+                new_name = "xen-disk-" + random_str
+                logging.debug("Checking if disk name %r exists", new_name)
+                if not disks_service.list(query={"search": "alias=%s" % new_name}):
+                    break
+
+            disk_def['name'] = new_name
+            logging.warn("Using generated name: %r", disk_def['name'])
+
+        # TODO - use storage domain name as well as ID
+        disk = sdk.types.Disk(
+            id=disk_def['id'],
+            alias=disk_def['name'],
+            format=sdk.types.DiskFormat.COW,
+            provisioned_size=disk_def['capacity'],
+            bootable=disk_def['bootable'],
+            storage_domains=[
+                sdk.types.StorageDomain(
+                    id=vm['storage_domain']
+                )
+            ]
+        )
+
+        logging.info("Adding disk: %r", disk_def['name'])
+        new_disks.append(disks_service.add(disk))
+        logging.info("Disk added")
+
+    # Wait until all disks are in ok state
+    for disk in new_disks:
+        while True:
+            disk_status = disks_service.service(disk.id).get().status
+            if disk_status == sdk.types.DiskStatus.ILLEGAL:
+                raise RuntimeError("Disk %r in illegal state!" % disk.alias)
+
+            if disk_status == sdk.types.DiskStatus.OK:
+                break
+
+            logging.debug("Waiting for disk %r to be unlocked.", disk.alias)
+            time.sleep(5)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v", "--verbose", help="Show debug messages", action="store_true")
@@ -69,6 +126,7 @@ def main():
         vm = json.load(f)
 
     vm['cluster'] = args.cluster
+    vm['storage_domain'] = args.domain
     if args.name:
         vm['name'] = args.name
 
@@ -83,6 +141,7 @@ def main():
 
     check_cluster_exists(vm['cluster'], connection)
     add_vm_to_ovirt(vm, connection)
+    add_disks_to_ovirt(vm, connection)
 
 
 if __name__ == '__main__':
