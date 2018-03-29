@@ -68,6 +68,7 @@ class ResourceType(object):
 
 class VM(object):
     def __init__(self):
+        self.id = None
         self.name = None
         self.cluster = None
         self.cpu_count = None
@@ -77,6 +78,7 @@ class VM(object):
 
     def to_dict(self):
         return {
+            'id': self.id,
             'name': self.name,
             'cluster': self.cluster,
             'cpu_count': self.cpu_count,
@@ -111,6 +113,8 @@ class OvfReader(object):
     def _read_ovf_virtual_system(self, elem):
         def set_name(name_elem):
             self._vm.name = name_elem.text
+
+        self._vm.id = elem.attrib[prefix_ns("ovf", "id")]
 
         for e in elem:
             handle_elem(e, {
@@ -204,6 +208,9 @@ class OvfReader(object):
                 continue
 
     def _check_required_fields(self):
+        if self._vm.id is None:
+            raise RuntimeError("VM ID is missing!")
+
         if self._vm.name is None:
             raise RuntimeError("Name is missing!")
 

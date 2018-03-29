@@ -24,6 +24,7 @@ def add_vm_to_ovirt(vm_def, conn):
 
     # TODO - Check if cluster is name or ID
     vm = sdk.types.Vm(
+        id=vm_def['id'],
         name=vm_def['name'],
         cluster=sdk.types.Cluster(
             id=vm_def['cluster']
