@@ -106,6 +106,22 @@ def add_disks_to_ovirt(vm, conn):
             time.sleep(5)
 
 
+def attach_disks_to_vm(vm_def, conn):
+    attachments_service = conn.service('vms/%s/diskattachments' % vm_def['id'])
+
+    for disk in vm_def['disks']:
+        logging.info("Attaching disk %r to VM", disk['name'])
+        attachments_service.add(sdk.types.DiskAttachment(
+            active=True,
+            bootable=disk['bootable'],
+            interface=sdk.types.DiskInterface.IDE,
+            disk=sdk.types.Disk(
+                id=disk['id']
+            )
+        ))
+        logging.debug("Disk attached")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v", "--verbose", help="Show debug messages", action="store_true")
@@ -142,6 +158,7 @@ def main():
     check_cluster_exists(vm['cluster'], connection)
     add_vm_to_ovirt(vm, connection)
     add_disks_to_ovirt(vm, connection)
+    attach_disks_to_vm(vm, connection)
 
 
 if __name__ == '__main__':
