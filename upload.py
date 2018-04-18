@@ -1,12 +1,16 @@
 
 import argparse
 import json
+import http.client
 import logging
 import ovirtsdk4 as sdk
+import os
 import string
+import ssl
 import random
 import re
 import time
+import urllib.parse
 
 
 NAME_PATTERN = re.compile("[\w.-]*")
@@ -52,6 +56,20 @@ def add_vm_to_ovirt(vm_def, conn):
     logging.info("VM added")
 
 
+def wait_for_disk_unlocked(disk_service):
+    while True:
+        disk = disk_service.get()
+        if disk.status == sdk.types.DiskStatus.OK:
+            break
+
+        if disk.status == sdk.types.DiskStatus.LOCKED:
+            logging.debug("Waiting for disk %r to be unlocked.", disk.alias)
+            time.sleep(5)
+            continue
+
+        raise RuntimeError("Disk %r in illegal status: %s" % (disk.alias, disk.status))
+
+
 def add_disks_to_ovirt(vm, conn):
     disks_service = conn.service('disks')
 
@@ -74,12 +92,15 @@ def add_disks_to_ovirt(vm, conn):
             disk_def['name'] = new_name
             logging.warn("Using generated name: %r", disk_def['name'])
 
+        disk_def["qcow_size"] = os.path.getsize(disk_def['qcow_file'])
+
         # TODO - use storage domain name as well as ID
         disk = sdk.types.Disk(
             id=disk_def['id'],
             alias=disk_def['name'],
             format=sdk.types.DiskFormat.COW,
             provisioned_size=disk_def['capacity'],
+            initial_size=disk_def['qcow_size'],
             bootable=disk_def['bootable'],
             storage_domains=[
                 sdk.types.StorageDomain(
@@ -88,22 +109,13 @@ def add_disks_to_ovirt(vm, conn):
             ]
         )
 
-        logging.info("Adding disk: %r", disk_def['name'])
+        logging.info("Adding disk: %s", disk_def)
         new_disks.append(disks_service.add(disk))
         logging.info("Disk added")
 
-    # Wait until all disks are in ok state
     for disk in new_disks:
-        while True:
-            disk_status = disks_service.service(disk.id).get().status
-            if disk_status == sdk.types.DiskStatus.ILLEGAL:
-                raise RuntimeError("Disk %r in illegal state!" % disk.alias)
-
-            if disk_status == sdk.types.DiskStatus.OK:
-                break
-
-            logging.debug("Waiting for disk %r to be unlocked.", disk.alias)
-            time.sleep(5)
+        disk_service = disks_service.service(disk.id)
+        wait_for_disk_unlocked(disk_service)
 
 
 def attach_disks_to_vm(vm_def, conn):
@@ -120,6 +132,108 @@ def attach_disks_to_vm(vm_def, conn):
             )
         ))
         logging.debug("Disk attached")
+
+
+class DiskUploader(object):
+    CHUNK_SIZE = 32 * 1024 * 1024
+
+    def __init__(self, disk, transfers_service):
+        self.disk = disk
+        self.transfers_service = transfers_service
+
+    def upload(self):
+        logging.debug("Creating image transfer for disk %r", self.disk['name'])
+        transfer = self.transfers_service.add(
+            sdk.types.ImageTransfer(
+                disk=sdk.types.Disk(
+                    id=self.disk['id']
+                ),
+                direction=sdk.types.ImageTransferDirection.UPLOAD
+            )
+        )
+
+        transfer_service = self.transfers_service.service(transfer.id)
+        try:
+            self._wait_for_transfer_ready(transfer_service)
+            self._transfer_disk(transfer, transfer_service)
+        finally:
+            transfer_service.finalize()
+            logging.info("Transfer finished")
+
+    def _wait_for_transfer_ready(self, transfer_service):
+        while True:
+            transfer = transfer_service.get()
+            if transfer.phase == sdk.types.ImageTransferPhase.TRANSFERRING:
+                return
+
+            if transfer.phase in [
+                sdk.types.ImageTransferPhase.INITIALIZING,
+                sdk.types.ImageTransferPhase.RESUMING
+            ]:
+                logging.debug("Waiting for image transfer to be ready...")
+                time.sleep(1)
+                continue
+
+            # TODO - cleanup on error
+            raise RuntimeError("Image transfer in invalid phase: %s" % transfer.phase)
+
+    def _transfer_disk(self, transfer, transfer_service):
+        logging.debug("Creating proxy connection")
+        url = urllib.parse.urlparse(transfer.proxy_url)
+        proxy_connection = http.client.HTTPSConnection(
+            url.hostname,
+            url.port,
+            context=ssl._create_unverified_context()
+        )
+        proxy_connection.connect()
+
+        logging.info("Transferring disk...")
+
+        transfer_headers = {
+            'Authorization': transfer.signed_ticket
+        }
+
+        file_size = self.disk['qcow_size']
+        logging.debug("File size: %s", file_size)
+        with open(self.disk['qcow_file'], "rb") as file:
+            start_pos = 0
+            for data in iter(lambda: file.read(self.CHUNK_SIZE), b""):
+                # Refresh ticket
+                transfer_service.extend()
+
+                end_pos = start_pos + len(data) - 1
+                transfer_headers['Content-Range'] = "bytes {0}-{1}/{2}".format(start_pos, end_pos, file_size)
+                start_pos += len(data)
+
+                proxy_connection.request(
+                    'PUT',
+                    url.path,
+                    data,
+                    headers=transfer_headers
+                )
+                logging.info("Progress: {:.2%}".format((end_pos+1) / float(file_size)))
+
+                response = proxy_connection.getresponse()
+                if response.status >= 400:
+                    logging.error("HTTP response status: %s", response.status)
+                    logging.error("HTTP response reson: %s", response.reason)
+                    response_data = response.read(response.length)
+                    logging.error("HTTP response data: %r", response_data.decode("UTF-8"))
+                    raise RuntimeError("Error uploading disk")
+
+
+def upload_disks(vm, conn):
+    image_transfers_service = conn.service('imagetransfers')
+    disks_service = conn.service('disks')
+
+    for disk in vm['disks']:
+        uploader = DiskUploader(disk, image_transfers_service)
+        uploader.upload()
+
+    for disk in vm['disks']:
+        wait_for_disk_unlocked(disks_service.service(disk['id']))
+
+    logging.info("Finished uploading disks")
 
 
 def main():
@@ -158,6 +272,7 @@ def main():
     check_cluster_exists(vm['cluster'], connection)
     add_vm_to_ovirt(vm, connection)
     add_disks_to_ovirt(vm, connection)
+    upload_disks(vm, connection)
     attach_disks_to_vm(vm, connection)
 
 
