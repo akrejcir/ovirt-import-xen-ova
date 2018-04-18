@@ -178,7 +178,7 @@ class OvfReader(object):
             namespaces=elem.nsmap
         )[0]
 
-        file_id = disk_elem.attrib[prefix_ns("ovf","fileRef")]
+        file_id = disk_elem.attrib[prefix_ns("ovf", "fileRef")]
         file_elem = self._ovf.xpath(
             "/ovf:Envelope/ovf:References/ovf:File[@ovf:id='{file_id}']".format(
                 file_id=file_id
@@ -189,9 +189,9 @@ class OvfReader(object):
         self._vm.disks.append({
             'id': disk_id,
             'name': str(elem.xpath("rasd:ElementName/text()", namespaces=elem.nsmap)[0]),
-            'capacity': int(disk_elem.attrib[prefix_ns("ovf","capacity")]),
-            'bootable': disk_elem.attrib[prefix_ns("xenovf","isBootable")] in ["true", "True"],
-            'file': file_elem.attrib[prefix_ns("ovf","href")]
+            'capacity': int(disk_elem.attrib[prefix_ns("ovf", "capacity")]),
+            'bootable': disk_elem.attrib[prefix_ns("xenovf", "isBootable")] in ["true", "True"],
+            'file': file_elem.attrib[prefix_ns("ovf", "href")]
         })
 
     def _read_hw_platform(self, elem):

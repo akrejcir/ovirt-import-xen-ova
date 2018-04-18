@@ -216,7 +216,7 @@ class DiskUploader(object):
                 response = proxy_connection.getresponse()
                 if response.status >= 400:
                     logging.error("HTTP response status: %s", response.status)
-                    logging.error("HTTP response reson: %s", response.reason)
+                    logging.error("HTTP response reason: %s", response.reason)
                     response_data = response.read(response.length)
                     logging.error("HTTP response data: %r", response_data.decode("UTF-8"))
                     raise RuntimeError("Error uploading disk")
