@@ -1,9 +1,12 @@
 
 import argparse
+import glob
 import json
 import lxml.etree as et
 import logging
 import subprocess
+import tarfile
+import os
 
 
 XML_NAMESPACES = {
@@ -255,13 +258,35 @@ def main():
                         help="Do not call qemu-img to convert disks",
                         action="store_true")
 
-    parser.add_argument("ovf_file", help="Xen OVF file")
+    parser.add_argument("filename", help="Xen OVA file or a directory containing OVF file")
     args = parser.parse_args()
 
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
-    ovf_root = et.parse(args.ovf_file).getroot()
+    path = args.filename
+    if os.path.isfile(path):
+        ova_dir = os.path.dirname(path)
+        ova_filename, ova_ext = os.path.splitext(path)
+
+        if ova_ext not in ['.ova', '.OVA']:
+            raise RuntimeError("File is not an OVA")
+
+        with tarfile.open(path) as tar_file:
+            logging.info("Extracting OVA archive...")
+            tar_file.extractall(path=ova_dir)
+            logging.info("Extraction finished.")
+
+        path = ova_filename
+
+    os.chdir(path)
+
+    ovf_files = glob.glob('*.ovf')
+    if not ovf_files:
+        logging.error("Directory %s does not contain an OVF file.", path)
+        return 1
+
+    ovf_root = et.parse(ovf_files[0]).getroot()
 
     vm = OvfReader().read_xen_ovf(ovf_root)
     convert_disks(vm, args.skip_disk_conversion)

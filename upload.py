@@ -246,7 +246,7 @@ def main():
     parser.add_argument("--domain", help="Name or ID of the storage domain, where the VM's disks be created")
     parser.add_argument("--name", help="Name of the VM")
 
-    parser.add_argument("vm", help="The vm json file")
+    parser.add_argument("vm", help="Path to the vm.json file created by vmextract.py script")
     args = parser.parse_args()
 
     if args.verbose:
@@ -254,6 +254,8 @@ def main():
 
     with open(args.vm, "r") as f:
         vm = json.load(f)
+
+    os.chdir(os.path.dirname(args.vm))
 
     vm['cluster'] = args.cluster
     vm['storage_domain'] = args.domain
