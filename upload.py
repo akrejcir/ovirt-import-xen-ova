@@ -249,8 +249,9 @@ def main():
     parser.add_argument("vm", help="Path to the vm.json file created by vmextract.py script")
     args = parser.parse_args()
 
-    if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
+    logging.getLogger().setLevel(
+        logging.DEBUG if args.verbose else logging.INFO
+    )
 
     with open(args.vm, "r") as f:
         vm = json.load(f)

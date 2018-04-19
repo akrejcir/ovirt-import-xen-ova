@@ -261,8 +261,9 @@ def main():
     parser.add_argument("filename", help="Xen OVA file or a directory containing OVF file")
     args = parser.parse_args()
 
-    if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
+    logging.getLogger().setLevel(
+        logging.DEBUG if args.verbose else logging.INFO
+    )
 
     path = args.filename
     if os.path.isfile(path):
