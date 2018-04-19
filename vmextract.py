@@ -48,10 +48,6 @@ def noop_handler(elem):
     pass
 
 
-def ignore_and_warn(elem):
-    logging.warn("Ignoring element: %s", elem.tag)
-
-
 class ResourceType(object):
     OTHER = 0
 
@@ -107,7 +103,7 @@ class OvfReader(object):
                 prefix_ns("ovf", "References"): noop_handler,
                 prefix_ns("ovf", "DiskSection"): noop_handler,
                 prefix_ns("ovf", "NetworkSection"): noop_handler,
-                prefix_ns("ovf", "StartupSection"): ignore_and_warn,
+                prefix_ns("ovf", "StartupSection"): noop_handler,
                 prefix_ns("ovf", "VirtualSystem"): self._read_ovf_virtual_system
             })
 
@@ -119,9 +115,9 @@ class OvfReader(object):
 
         for e in elem:
             handle_elem(e, {
-                prefix_ns("ovf", "Info"): ignore_and_warn,
+                prefix_ns("ovf", "Info"): noop_handler,
                 prefix_ns("ovf", "Name"): set_name,
-                prefix_ns("ovf", "OperatingSystemSection"): ignore_and_warn,
+                prefix_ns("ovf", "OperatingSystemSection"): noop_handler,
                 prefix_ns("ovf", "VirtualHardwareSection"): self._read_hardware
             })
 
@@ -130,24 +126,24 @@ class OvfReader(object):
             handle_elem(item, {
                 ResourceType.CPU: self._read_hw_cpu,
                 ResourceType.MEMORY: self._read_hw_memory,
-                ResourceType.ETHERNET: ignore_and_warn,
-                ResourceType.CD_DRIVE: ignore_and_warn,
-                ResourceType.DVD_DRIVE: ignore_and_warn,
+                ResourceType.ETHERNET: noop_handler, # Network will not be attached
+                ResourceType.CD_DRIVE: noop_handler,
+                ResourceType.DVD_DRIVE: noop_handler,
                 ResourceType.STORAGE_EXTENT: self._read_hw_disk
             }, lambda e: int(e.xpath("rasd:ResourceType/text()", namespaces=e.nsmap)[0]))
 
         def handle_other_config(elem):
             handle_elem(elem, {
-                "HVM_boot_params": ignore_and_warn,
-                "HVM_boot_policy": ignore_and_warn,
+                "HVM_boot_params": noop_handler,
+                "HVM_boot_policy": noop_handler,
                 "platform": self._read_hw_platform,
                 "hardware_platform_version": noop_handler  # Not relevant for oVirt
             }, lambda e: e.attrib["Name"])
 
         for e in elem:
             handle_elem(e, {
-                prefix_ns("ovf", "Info"): ignore_and_warn,
-                prefix_ns("ovf", "System"): ignore_and_warn,
+                prefix_ns("ovf", "Info"): noop_handler,
+                prefix_ns("ovf", "System"): noop_handler,
                 prefix_ns("ovf", "Item"): handle_item,
                 prefix_ns("xenovf", "VirtualSystemOtherConfigurationData"): handle_other_config
             })
