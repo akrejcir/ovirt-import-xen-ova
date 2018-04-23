@@ -274,7 +274,7 @@ def main():
             tar_file.extractall(path=ova_dir)
             logging.info("Extraction finished.")
 
-        path = ova_filename
+        path = ova_dir
 
     os.chdir(path)
 
