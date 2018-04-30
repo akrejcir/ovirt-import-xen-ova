@@ -4,6 +4,7 @@ import glob
 import json
 import lxml.etree as et
 import logging
+import re
 import subprocess
 import tarfile
 import os
@@ -247,6 +248,22 @@ def convert_disks(vm, skip_conversion):
         disk["qcow_file"] = out_file
 
 
+def read_ovf(ovf_file):
+    with open(ovf_file, "r") as f:
+        contents = f.read()
+
+    version_tag_pattern = r'^\s*<\?xml\s*version="[^"]*"\s*encoding="([^"]*)"\s*\?>'
+
+    # Checking the utf versuion in the header
+    match = re.match(version_tag_pattern, contents)
+    if match and match.group(1) == 'utf-16':
+        # The OVF is probably not stored in UTF-16 format.
+        logging.warn('XML contains encoding="utf-16, ignoring"')
+
+    # Strip the encoding tag
+    return re.sub(version_tag_pattern, '', contents)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v", "--verbose", help="Show debug messages", action="store_true")
@@ -283,7 +300,8 @@ def main():
         logging.error("Directory %s does not contain an OVF file.", path)
         return 1
 
-    ovf_root = et.parse(ovf_files[0]).getroot()
+    ovf_contents = read_ovf(ovf_files[0])
+    ovf_root = et.fromstring(ovf_contents)
 
     vm = OvfReader().read_xen_ovf(ovf_root)
     convert_disks(vm, args.skip_disk_conversion)
