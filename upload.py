@@ -11,17 +11,50 @@ import random
 import re
 import time
 import urllib.parse
+import uuid
 
 
 NAME_PATTERN = re.compile("[\w.-]*")
 
 
+def is_string_uuid(val):
+    try:
+        uuid.UUID(val)
+        return True
+    except ValueError:
+        return False
+
+
 def check_cluster_exists(cluster_id, conn):
     try:
         conn.service("clusters").service(cluster_id).get()
-        conn.service("clusters").service("b60a6da0-2dba-11e8-8cdb-001a4c103f15")
     except sdk.NotFoundError:
         raise RuntimeError("Cluster was not found, id: %s" % cluster_id) from None
+
+
+def check_domain_exists(domain_id, conn):
+    try:
+        conn.service("storagedomains").service(domain_id).get()
+    except sdk.NotFoundError:
+        raise RuntimeError("Storage domain was not found, id: %s" % domain_id) from None
+
+
+def get_cluster_id_by_name(cluster_name, conn):
+    search_str = 'name=%s' % cluster_name
+    clusters = conn.service("clusters").list(search=search_str, max=1)
+    if not clusters:
+        raise RuntimeError("Cluster was not found, name: %s" % cluster_name)
+
+    return clusters[0].id
+
+
+def get_domain_id_by_name(domain_name, conn):
+    search_str = 'name=%s' % domain_name
+    domains = conn.service("storagedomains").list(search=search_str, max=1)
+    if not domains:
+        raise RuntimeError("Storage domain was not found, name: %s" % domain_name)
+
+    return domains[0].id
 
 
 def add_vm_to_ovirt(vm_def, conn):
@@ -29,7 +62,6 @@ def add_vm_to_ovirt(vm_def, conn):
     if not NAME_PATTERN.fullmatch(vm_def['name']):
         raise RuntimeError("Vm name can only contain alpha-numeric characters, '_', '-' or '.'. Vm name: %r" % vm_def['name'])
 
-    # TODO - Check if cluster is name or ID
     vm = sdk.types.Vm(
         id=vm_def['id'],
         name=vm_def['name'],
@@ -94,7 +126,6 @@ def add_disks_to_ovirt(vm, conn):
 
         disk_def["qcow_size"] = os.path.getsize(disk_def['qcow_file'])
 
-        # TODO - use storage domain name as well as ID
         disk = sdk.types.Disk(
             id=disk_def['id'],
             alias=disk_def['name'],
@@ -262,8 +293,6 @@ def main():
 
     os.chdir(os.path.dirname(args.vm))
 
-    vm['cluster'] = args.cluster
-    vm['storage_domain'] = args.domain
     if args.name:
         vm['name'] = args.name
 
@@ -276,7 +305,11 @@ def main():
 
     connection.test(raise_exception=True)
 
+    vm['cluster'] = args.cluster if is_string_uuid(args.cluster) else get_cluster_id_by_name(args.cluster, connection)
+    vm['storage_domain'] = args.domain if is_string_uuid(args.domain) else get_domain_id_by_name(args.domain, connection)
+
     check_cluster_exists(vm['cluster'], connection)
+    check_domain_exists(vm['storage_domain'], connection)
     add_vm_to_ovirt(vm, connection)
     add_disks_to_ovirt(vm, connection)
     upload_disks(vm, connection)
