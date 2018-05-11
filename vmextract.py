@@ -285,7 +285,7 @@ def main():
         ova_dir = os.path.dirname(path)
         ova_filename, ova_ext = os.path.splitext(path)
 
-        if ova_ext not in ['.ova', '.OVA']:
+        if ova_ext.lower() != '.ova':
             raise RuntimeError("File is not an OVA")
 
         with tarfile.open(path) as tar_file:
