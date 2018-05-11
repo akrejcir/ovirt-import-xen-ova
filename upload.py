@@ -237,16 +237,20 @@ def upload_disks(vm, conn):
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-v", "--verbose", help="Show debug messages", action="store_true")
-    parser.add_argument("--engine", help="URL of the oVirt engine API", required=True)
-    parser.add_argument("--user", help="oVirt user name", required=True)
-    parser.add_argument("--password", help="oVirt user password", required=True)
-    parser.add_argument("--cluster", help="Name or ID of the cluster, where the VM will be created.", required=True)
-    parser.add_argument("--domain", help="Name or ID of the storage domain, where the VM's disks be created")
-    parser.add_argument("--name", help="Name of the VM")
+    parser = argparse.ArgumentParser(
+        description="Creates the VM in oVirt and uploads the disk images using HTTP."
+    )
+    parser.add_argument("vm", help="path to the vm.json file created by vmextract.py script")
+    parser.add_argument("-v", "--verbose", help="show debug messages", action="store_true")
+    parser.add_argument("--name", help="name of the VM. Useful in case the original name is not supported in oVirt.")
 
-    parser.add_argument("vm", help="Path to the vm.json file created by vmextract.py script")
+    required_args = parser.add_argument_group("required arguments")
+    required_args.add_argument("--engine", help="URL of the oVirt engine API", required=True)
+    required_args.add_argument("--user", help="oVirt user name", required=True)
+    required_args.add_argument("--password", help="oVirt user password", required=True)
+    required_args.add_argument("--cluster", help="name or ID of the cluster, where the VM will be created.", required=True)
+    required_args.add_argument("--domain", help="name or ID of the storage domain, where the VM's disks be created", required=True)
+
     args = parser.parse_args()
 
     logging.getLogger().setLevel(

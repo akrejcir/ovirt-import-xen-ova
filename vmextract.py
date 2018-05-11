@@ -265,13 +265,15 @@ def read_ovf(ovf_file):
 
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Extracts the OVA file, reads information from the OVF and converts disks from vhd format to qcow2."
+    )
     parser.add_argument("-v", "--verbose", help="Show debug messages", action="store_true")
     parser.add_argument("-s", "--skip-disk-conversion",
                         help="Do not call qemu-img to convert disks",
                         action="store_true")
 
-    parser.add_argument("filename", help="Xen OVA file or a directory containing OVF file")
+    parser.add_argument("filename", help="Xen OVA file or a directory containing the OVF file")
     args = parser.parse_args()
 
     logging.getLogger().setLevel(
