@@ -2,17 +2,40 @@
 
 These scripts can be used to convert virtual machines from Xen to oVirt.  
 
-### Scripts
+### Extracting VM from Xen OVA
 
-- `vmextract.py` Extracts information from OVA file containing the Xen source VM.
-- `upload.py` Uploads the VM to oVirt.
+The script `vmextract.py` extracts information from the Xen OVA file containing the Xen source VM.
 
-### Example Usage
+The following information is extracted from the OVA and stored to a `vm.json` file:
+- Number of CPUs and the number of cores per socket
+- Memory size
+- For each disk:
+  - Image file
+  - Capacity
+  - Bootable flag
 
+Then each disk iamge is converted from VHD format to qcow2 format by running `qemu-img convert` utility.
+
+##### Example
 ```bash
-vmextract.py --verbose CentOS-7-vm.ova
+python vmextract.py --verbose CentOS-7-vm.ova
+```
 
-upload.py --verbose \
+### Uploading VM to oVirt
+
+The script `upload.py` uploads the VM to oVirt using the python SDK.
+
+The script does theses steps:
+- Creates the VM
+- Creates disks
+- Transfers the disk images to oVirt using the HTTP image transfer mechanism
+- Assigns the disks to the VM
+
+Network is not attached automatically to the new VM.
+
+##### Example
+```bash
+python upload.py --verbose \
     --engine 'https://example.com/ovirt-engine/api' \
     --user 'admin@internal' \
     --password 'pasword' \
@@ -21,5 +44,3 @@ upload.py --verbose \
     --name 'vm-name' \
     CentOS-7-vm/vm.json
 ```
-
-
