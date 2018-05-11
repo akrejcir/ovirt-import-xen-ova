@@ -20,15 +20,6 @@ XML_NAMESPACES = {
 }
 
 
-# Hardware section
-# ---- common ----
-# - disk
-# - cd / dvd
-# - network adapters
-# - cpus
-# - memory
-
-
 def prefix_ns(ns, val):
     return "{%s}%s" % (XML_NAMESPACES[ns], val)
 
