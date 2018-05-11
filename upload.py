@@ -10,11 +10,11 @@ import ssl
 import random
 import re
 import time
-import urllib.parse
+import six.moves.urllib.parse as url_parse
 import uuid
 
 
-NAME_PATTERN = re.compile("[\w.-]*")
+NAME_PATTERN_FULL_STR = re.compile("[\w.-]*\Z")
 
 
 def is_string_uuid(val):
@@ -29,14 +29,14 @@ def check_cluster_exists(cluster_id, conn):
     try:
         conn.service("clusters").service(cluster_id).get()
     except sdk.NotFoundError:
-        raise RuntimeError("Cluster was not found, id: %s" % cluster_id) from None
+        raise RuntimeError("Cluster was not found, id: %s" % cluster_id)
 
 
 def check_domain_exists(domain_id, conn):
     try:
         conn.service("storagedomains").service(domain_id).get()
     except sdk.NotFoundError:
-        raise RuntimeError("Storage domain was not found, id: %s" % domain_id) from None
+        raise RuntimeError("Storage domain was not found, id: %s" % domain_id)
 
 
 def get_cluster_id_by_name(cluster_name, conn):
@@ -59,7 +59,7 @@ def get_domain_id_by_name(domain_name, conn):
 
 def add_vm_to_ovirt(vm_def, conn):
     # Check if name is valid
-    if not NAME_PATTERN.fullmatch(vm_def['name']):
+    if not NAME_PATTERN_FULL_STR.match(vm_def['name']):
         raise RuntimeError("Vm name can only contain alpha-numeric characters, '_', '-' or '.'. Vm name: %r" % vm_def['name'])
 
     vm = sdk.types.Vm(
@@ -110,7 +110,7 @@ def add_disks_to_ovirt(vm, conn):
         if disks_service.list(query={"search": "id=%s" % disk_def["id"]}):
             raise RuntimeError("Disk with id %r already exists. Disk name: %r" % (disk_def['id'], disk_def['name']))
 
-        if not NAME_PATTERN.fullmatch(disk_def['name']):
+        if not NAME_PATTERN_FULL_STR.match(disk_def['name']):
             logging.warn("Disk name is not compatible with oVirt: %r", disk_def['name'])
 
             # Generate random name and check if it is free
@@ -210,7 +210,7 @@ class DiskUploader(object):
 
     def _transfer_disk(self, transfer, transfer_service):
         logging.debug("Creating proxy connection")
-        url = urllib.parse.urlparse(transfer.proxy_url)
+        url = url_parse.urlparse(transfer.proxy_url)
         proxy_connection = http.client.HTTPSConnection(
             url.hostname,
             url.port,

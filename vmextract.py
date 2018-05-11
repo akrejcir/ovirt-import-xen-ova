@@ -192,7 +192,7 @@ class OvfReader(object):
             if not p:
                 continue
 
-            [key, value] = p.split('=', maxsplit=1)
+            [key, value] = p.split('=',1)
             if key == 'cores-per-socket':
                 self._vm.cores_pre_socket = int(value)
                 continue
