@@ -14,7 +14,7 @@ The following information is extracted from the OVA and stored to a `vm.json` fi
   - Capacity
   - Bootable flag
 
-Then each disk iamge is converted from VHD format to qcow2 format by running `qemu-img convert` utility.
+Then each disk image is converted from VHD format to qcow2 format by running `qemu-img convert` utility.
 
 ##### Example
 ```bash
